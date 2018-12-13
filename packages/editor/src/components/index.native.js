@@ -14,3 +14,4 @@ export { default as DefaultBlockAppender } from './default-block-appender';
 export { default as PostTitle } from './post-title';
 export { default as EditorHistoryRedo } from './editor-history/redo';
 export { default as EditorHistoryUndo } from './editor-history/undo';
+export { default as URLInput } from './url-input';
