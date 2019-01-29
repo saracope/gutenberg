@@ -116,7 +116,13 @@ class CategoriesEdit extends Component {
 					{ __( 'Categories' ) }
 				</label>
 				<select id={ selectId } className="wp-block-categories__dropdown">
-					{ categories.map( ( category ) => this.renderCategoryDropdownItem( category, 0 ) ) }
+					{ categories.filter(
+						( { parent } ) => parent === 0
+					).map(
+						( category ) => {
+							return this.renderCategoryDropdownItem( category, 0 );
+						}
+					) }
 				</select>
 			</Fragment>
 		);
