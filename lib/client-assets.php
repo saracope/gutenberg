@@ -80,8 +80,20 @@ if ( ! function_exists( 'register_tinymce_scripts' ) ) {
  *                                    Default 'false'.
  */
 function gutenberg_override_script( $handle, $src, $deps = array(), $ver = false, $in_footer = false ) {
-	wp_deregister_script( $handle );
-	wp_register_script( $handle, $src, $deps, $ver, $in_footer );
+	global $wp_scripts;
+
+	$script = $wp_scripts->query( $handle, 'registered' );
+	if ( $script ) {
+		$script->src  = $src;
+		$script->deps = $deps;
+		$script->ver  = $ver;
+		unset( $script->extra['group'] );
+		if ( $in_footer ) {
+			$script->add_data( 'group', 1 );
+		}
+	} else {
+		wp_register_script( $handle, $src, $deps, $ver, $in_footer );
+	}
 }
 
 /**
@@ -139,274 +151,66 @@ function gutenberg_register_scripts_and_styles() {
 	global $wp_scripts;
 
 	gutenberg_register_vendor_scripts();
-
-	wp_add_inline_script(
-		'wp-polyfill',
-		wp_get_script_polyfill(
-			$wp_scripts,
-			array(
-				'\'fetch\' in window' => 'wp-polyfill-fetch',
-				'document.contains'   => 'wp-polyfill-node-contains',
-				'window.FormData && window.FormData.prototype.keys' => 'wp-polyfill-formdata',
-				'Element.prototype.matches && Element.prototype.closest' => 'wp-polyfill-element-closest',
-			),
-			'after'
-		)
-	);
-
 	gutenberg_register_packages_scripts();
 
-	// Inline scripts.
-	global $wp_scripts;
-	if ( isset( $wp_scripts->registered['wp-api-fetch'] ) ) {
-		$wp_scripts->registered['wp-api-fetch']->deps[] = 'wp-hooks';
-	}
-	wp_add_inline_script(
-		'wp-api-fetch',
-		sprintf(
-			implode(
-				"\n",
-				array(
-					'( function() {',
-					'	var nonceMiddleware = wp.apiFetch.createNonceMiddleware( "%s" );',
-					'	wp.apiFetch.use( nonceMiddleware );',
-					'	wp.hooks.addAction(',
-					'		"heartbeat.tick",',
-					'		"core/api-fetch/create-nonce-middleware",',
-					'		function( response ) {',
-					'			if ( response[ "rest_nonce" ] ) {',
-					'				nonceMiddleware.nonce = response[ "rest_nonce" ];',
-					'			}',
-					'		}',
-					'	)',
-					'} )()',
-				)
-			),
-			( wp_installing() && ! is_multisite() ) ? '' : wp_create_nonce( 'wp_rest' )
-		),
-		'after'
-	);
-	wp_add_inline_script(
-		'wp-api-fetch',
-		sprintf(
-			'wp.apiFetch.use( wp.apiFetch.createRootURLMiddleware( "%s" ) );',
-			esc_url_raw( get_rest_url() )
-		),
-		'after'
-	);
-	wp_add_inline_script(
-		'wp-data',
-		implode(
-			"\n",
-			array(
-				'( function() {',
-				'	var userId = ' . get_current_user_ID() . ';',
-				'	var storageKey = "WP_DATA_USER_" + userId;',
-				'	wp.data',
-				'		.use( wp.data.plugins.persistence, { storageKey: storageKey } )',
-				'		.use( wp.data.plugins.controls );',
-				'} )()',
-			)
-		)
-	);
-	global $wp_locale;
-	wp_add_inline_script(
-		'wp-date',
-		sprintf(
-			'wp.date.setSettings( %s );',
-			wp_json_encode(
-				array(
-					'l10n'     => array(
-						'locale'        => get_user_locale(),
-						'months'        => array_values( $wp_locale->month ),
-						'monthsShort'   => array_values( $wp_locale->month_abbrev ),
-						'weekdays'      => array_values( $wp_locale->weekday ),
-						'weekdaysShort' => array_values( $wp_locale->weekday_abbrev ),
-						'meridiem'      => (object) $wp_locale->meridiem,
-						'relative'      => array(
-							/* translators: %s: duration */
-							'future' => __( '%s from now', 'default' ),
-							/* translators: %s: duration */
-							'past'   => __( '%s ago', 'default' ),
-						),
-					),
-					'formats'  => array(
-						'time'                => get_option( 'time_format', __( 'g:i a', 'default' ) ),
-						'date'                => get_option( 'date_format', __( 'F j, Y', 'default' ) ),
-						'datetime'            => __( 'F j, Y g:i a', 'default' ),
-						'datetimeAbbreviated' => __( 'M j, Y g:i a', 'default' ),
-					),
-					'timezone' => array(
-						'offset' => get_option( 'gmt_offset', 0 ),
-						'string' => get_option( 'timezone_string', 'UTC' ),
-					),
-				)
-			)
-		),
-		'after'
-	);
-	wp_add_inline_script(
-		'moment',
-		sprintf(
-			"moment.locale( '%s', %s );",
-			get_user_locale(),
-			wp_json_encode(
-				array(
-					'months'         => array_values( $wp_locale->month ),
-					'monthsShort'    => array_values( $wp_locale->month_abbrev ),
-					'weekdays'       => array_values( $wp_locale->weekday ),
-					'weekdaysShort'  => array_values( $wp_locale->weekday_abbrev ),
-					'week'           => array(
-						'dow' => (int) get_option( 'start_of_week', 0 ),
-					),
-					'longDateFormat' => array(
-						'LT'   => get_option( 'time_format', __( 'g:i a', 'default' ) ),
-						'LTS'  => null,
-						'L'    => null,
-						'LL'   => get_option( 'date_format', __( 'F j, Y', 'default' ) ),
-						'LLL'  => __( 'F j, Y g:i a', 'default' ),
-						'LLLL' => null,
-					),
-				)
-			)
-		),
-		'after'
-	);
-	// Loading the old editor and its config to ensure the classic block works as expected.
-	wp_add_inline_script(
-		'editor',
-		'window.wp.oldEditor = window.wp.editor;',
-		'after'
-	);
-
-	$tinymce_plugins = array(
-		'charmap',
-		'colorpicker',
-		'hr',
-		'lists',
-		'media',
-		'paste',
-		'tabfocus',
-		'textcolor',
-		'fullscreen',
-		'wordpress',
-		'wpautoresize',
-		'wpeditimage',
-		'wpemoji',
-		'wpgallery',
-		'wplink',
-		'wpdialogs',
-		'wptextpattern',
-		'wpview',
-	);
-	$tinymce_plugins = apply_filters( 'tiny_mce_plugins', $tinymce_plugins, 'classic-block' );
-	$tinymce_plugins = array_unique( $tinymce_plugins );
-
-	$toolbar1 = array(
-		'formatselect',
-		'bold',
-		'italic',
-		'bullist',
-		'numlist',
-		'blockquote',
-		'alignleft',
-		'aligncenter',
-		'alignright',
-		'link',
-		'unlink',
-		'wp_more',
-		'spellchecker',
-		'wp_add_media',
-		'kitchensink',
-	);
-	$toolbar1 = apply_filters( 'mce_buttons', $toolbar1, 'classic-block' );
-
-	$toolbar2 = array(
-		'strikethrough',
-		'hr',
-		'forecolor',
-		'pastetext',
-		'removeformat',
-		'charmap',
-		'outdent',
-		'indent',
-		'undo',
-		'redo',
-		'wp_help',
-	);
-	$toolbar2 = apply_filters( 'mce_buttons_2', $toolbar2, 'classic-block' );
-
-	$toolbar3 = apply_filters( 'mce_buttons_3', array(), 'classic-block' );
-	$toolbar4 = apply_filters( 'mce_buttons_4', array(), 'classic-block' );
-
-	$external_plugins = apply_filters( 'mce_external_plugins', array(), 'classic-block' );
-
-	$tinymce_settings = array(
-		'plugins'              => implode( ',', $tinymce_plugins ),
-		'toolbar1'             => implode( ',', $toolbar1 ),
-		'toolbar2'             => implode( ',', $toolbar2 ),
-		'toolbar3'             => implode( ',', $toolbar3 ),
-		'toolbar4'             => implode( ',', $toolbar4 ),
-		'external_plugins'     => wp_json_encode( $external_plugins ),
-		'classic_block_editor' => true,
-	);
-	$tinymce_settings = apply_filters( 'tiny_mce_before_init', $tinymce_settings, 'classic-block' );
-
-	// Do "by hand" translation from PHP array to js object.
-	// Prevents breakage in some custom settings.
-	$init_obj = '';
-	foreach ( $tinymce_settings as $key => $value ) {
-		if ( is_bool( $value ) ) {
-			$val       = $value ? 'true' : 'false';
-			$init_obj .= $key . ':' . $val . ',';
-			continue;
-		} elseif ( ! empty( $value ) && is_string( $value ) && (
-			( '{' == $value{0} && '}' == $value{strlen( $value ) - 1} ) ||
-			( '[' == $value{0} && ']' == $value{strlen( $value ) - 1} ) ||
-			preg_match( '/^\(?function ?\(/', $value ) ) ) {
-
-			$init_obj .= $key . ':' . $value . ',';
-			continue;
-		}
-		$init_obj .= $key . ':"' . $value . '",';
+	// Transforms heartbeat jQuery events into equivalent hook actions. This
+	// avoids a dependency on jQuery for listening to the event. This should be
+	// removed as soon as it's provided by WordPress in a version satisfied by
+	// the minimum version of the Gutenberg plugin.
+	//
+	// See: [TRAC TICKET] .
+	$heartbeat_script = $wp_scripts->query( 'heartbeat', 'registered' );
+	if ( $heartbeat_script && ! in_array( 'wp-hooks', $heartbeat_script->deps ) ) {
+		$heartbeat_script->deps[] = 'wp-hooks';
 	}
 
-	$init_obj = '{' . trim( $init_obj, ' ,' ) . '}';
+	$heartbeat_hooks = <<<JS
+( function() {
+	jQuery( document ).on( [
+		'heartbeat-send',
+		'heartbeat-tick',
+		'heartbeat-error',
+		'heartbeat-connection-lost',
+		'heartbeat-connection-restored',
+		'heartbeat-nonces-expired',
+	].join( ' ' ), function( event ) {
+		var actionName = event.type.replace( /-/g, '.' ),
+			args;
 
-	$script = 'window.wpEditorL10n = {
-		tinymce: {
-			baseURL: ' . wp_json_encode( includes_url( 'js/tinymce' ) ) . ',
-			suffix: ' . ( SCRIPT_DEBUG ? '""' : '".min"' ) . ',
-			settings: ' . $init_obj . ',
-		}
-	}';
+		// Omit the event argument in applying arguments to the hook callback.
+		// The remaining arguments are passed to the hook.
+		args = Array.prototype.slice.call( arguments, 1 );
 
-	wp_add_inline_script( 'wp-block-library', $script, 'before' );
+		wp.hooks.doAction.apply( null, [ actionName ].concat( args ) );
+	} );
+} )();
+JS;
+	wp_add_inline_script( 'heartbeat', $heartbeat_hooks );
+
+	// Temporary compatibility to provide `_wpLoadGutenbergEditor` as an alias
+	// of `_wpLoadBlockEditor`.
+	//
+	// TODO: Hello future maintainer. In removing this deprecation, ensure also
+	// to check whether `wp-editor` dependencies in `package-dependencies.php`
+	// still require `wp-deprecated`.
+	$gutenberg_load_compat = <<<JS
+Object.defineProperty( window, '_wpLoadGutenbergEditor', {
+	get: function() {
+		wp.deprecated( '`window._wpLoadGutenbergEditor`', {
+			plugin: 'Gutenberg',
+			version: '5.2',
+			alternative: '`window._wpLoadBlockEditor`',
+			hint: 'This is a private API, not intended for public use. It may be removed in the future.'
+		} );
+		return window._wpLoadBlockEditor;
+	}
+} );
+JS;
+	wp_add_inline_script( 'wp-editor', $gutenberg_load_compat );
 
 	// Editor Styles.
 	// This empty stylesheet is defined to ensure backward compatibility.
 	gutenberg_override_style( 'wp-blocks', false );
-	$fonts_url = '';
-
-	/*
-	 * Translators: Use this to specify the proper Google Font name and variants
-	 * to load that is supported by your language. Do not translate.
-	 * Set to 'off' to disable loading.
-	 */
-	$font_family = _x( 'Noto Serif:400,400i,700,700i', 'Google Font Name and Variants', 'gutenberg' );
-	if ( 'off' !== $font_family ) {
-		$query_args = array(
-			'family' => urlencode( $font_family ),
-		);
-		$fonts_url  = esc_url_raw( add_query_arg( $query_args, 'https://fonts.googleapis.com/css' ) );
-	}
-
-	gutenberg_override_style(
-		'wp-editor-font',
-		$fonts_url,
-		array(),
-		null
-	);
 
 	gutenberg_override_style(
 		'wp-editor',
@@ -550,7 +354,6 @@ function gutenberg_register_vendor_scripts() {
 		'lodash',
 		'https://unpkg.com/lodash@4.17.5/lodash' . $suffix . '.js'
 	);
-	wp_add_inline_script( 'lodash', 'window.lodash = _.noConflict();' );
 	gutenberg_register_vendor_script(
 		'wp-polyfill-fetch',
 		'https://unpkg.com/whatwg-fetch@3.0.0/dist/fetch.umd.js'
@@ -721,67 +524,29 @@ function gutenberg_enqueue_registered_block_scripts_and_styles() {
  * Assigns a default editor template with a default block by post format, if
  * not otherwise assigned for a new post of type "post".
  *
- * @param array   $settings Default editor settings.
- * @param WP_Post $post     Post being edited.
+ * @deprecated 5.0.0
+ *
+ * @param array $settings Default editor settings.
  *
  * @return array Filtered block editor settings.
  */
-function gutenberg_default_post_format_template( $settings, $post ) {
-	// Only assign template for new posts without explicitly assigned template.
-	$is_new_post = 'auto-draft' === $post->post_status;
-	if ( $is_new_post && ! isset( $settings['template'] ) && 'post' === $post->post_type ) {
-		switch ( get_post_format() ) {
-			case 'audio':
-				$default_block_name = 'core/audio';
-				break;
-			case 'gallery':
-				$default_block_name = 'core/gallery';
-				break;
-			case 'image':
-				$default_block_name = 'core/image';
-				break;
-			case 'quote':
-				$default_block_name = 'core/quote';
-				break;
-			case 'video':
-				$default_block_name = 'core/video';
-				break;
-		}
-
-		if ( isset( $default_block_name ) ) {
-			$settings['template'] = array( array( $default_block_name ) );
-		}
-	}
+function gutenberg_default_post_format_template( $settings ) {
+	_deprecated_function( __FUNCTION__, '5.0.0' );
 
 	return $settings;
 }
-add_filter( 'block_editor_settings', 'gutenberg_default_post_format_template', 10, 2 );
 
 /**
  * Retrieve a stored autosave that is newer than the post save.
  *
  * Deletes autosaves that are older than the post save.
  *
- * @param  WP_Post $post Post object.
+ * @deprecated 5.0.0
+ *
  * @return WP_Post|boolean The post autosave. False if none found.
  */
-function gutenberg_get_autosave_newer_than_post_save( $post ) {
-	// Add autosave data if it is newer and changed.
-	$autosave = wp_get_post_autosave( $post->ID );
-
-	if ( ! $autosave ) {
-		return false;
-	}
-
-	// Check if the autosave is newer than the current post.
-	if (
-		mysql2date( 'U', $autosave->post_modified_gmt, false ) > mysql2date( 'U', $post->post_modified_gmt, false )
-	) {
-		return $autosave;
-	}
-
-	// If the autosave isn't newer, remove it.
-	wp_delete_post_revision( $autosave->ID );
+function gutenberg_get_autosave_newer_than_post_save() {
+	_deprecated_function( __FUNCTION__, '5.0.0' );
 
 	return false;
 }
@@ -816,29 +581,42 @@ function gutenberg_load_locale_data() {
 /**
  * Retrieve The available image sizes for a post
  *
+ * @deprecated 5.0.0
+ *
  * @return array
  */
 function gutenberg_get_available_image_sizes() {
-	$size_names = apply_filters(
-		'image_size_names_choose',
-		array(
-			'thumbnail' => __( 'Thumbnail', 'gutenberg' ),
-			'medium'    => __( 'Medium', 'gutenberg' ),
-			'large'     => __( 'Large', 'gutenberg' ),
-			'full'      => __( 'Full Size', 'gutenberg' ),
-		)
-	);
+	_deprecated_function( __FUNCTION__, '5.0.0' );
 
-	$all_sizes = array();
-	foreach ( $size_names as $size_slug => $size_name ) {
-		$all_sizes[] = array(
-			'slug' => $size_slug,
-			'name' => $size_name,
-		);
+	return array();
+}
+
+/**
+ * Extends block editor settings to account for the legacy `gutenberg` theme
+ * support, currently on track for deprecation. This function is temporary, and
+ * will be removed at a point at which the theme support has been removed.
+ *
+ * @param array $settings Default editor settings.
+ *
+ * @return array Filtered editor settings.
+ */
+function _gutenberg_extend_legacy_align_wide_editor_setting( $settings ) {
+	$gutenberg_theme_support = get_theme_support( 'gutenberg' );
+	if ( empty( $gutenberg_theme_support ) ) {
+		return $settings;
 	}
 
-	return $all_sizes;
+	wp_enqueue_script( 'wp-deprecated' );
+	wp_add_inline_script( 'wp-deprecated', 'wp.deprecated( "`gutenberg` theme support", { plugin: "Gutenberg", version: "5.2", alternative: "`align-wide` theme support" } );' );
+
+	$settings['alignWide'] = (
+		! empty( $settings['alignWide'] ) ||
+		! empty( $gutenberg_theme_support[0]['wide-images'] )
+	);
+
+	return $settings;
 }
+add_filter( 'block_editor_settings', '_gutenberg_extend_legacy_align_wide_editor_setting' );
 
 /**
  * Scripts & Styles.
@@ -851,48 +629,6 @@ function gutenberg_get_available_image_sizes() {
  * @param string $hook Screen name.
  */
 function gutenberg_editor_scripts_and_styles( $hook ) {
-	global $wp_scripts, $wp_meta_boxes;
-
-	// Add "wp-hooks" as dependency of "heartbeat".
-	$heartbeat_script = $wp_scripts->query( 'heartbeat', 'registered' );
-	if ( $heartbeat_script && ! in_array( 'wp-hooks', $heartbeat_script->deps ) ) {
-		$heartbeat_script->deps[] = 'wp-hooks';
-	}
-
-	// Enqueue heartbeat separately as an "optional" dependency of the editor.
-	// Heartbeat is used for automatic nonce refreshing, but some hosts choose
-	// to disable it outright.
-	wp_enqueue_script( 'heartbeat' );
-
-	// Transforms heartbeat jQuery events into equivalent hook actions. This
-	// avoids a dependency on jQuery for listening to the event.
-	$heartbeat_hooks = <<<JS
-( function() {
-	jQuery( document ).on( [
-		'heartbeat-send',
-		'heartbeat-tick',
-		'heartbeat-error',
-		'heartbeat-connection-lost',
-		'heartbeat-connection-restored',
-		'heartbeat-nonces-expired',
-	].join( ' ' ), function( event ) {
-		var actionName = event.type.replace( /-/g, '.' ),
-			args;
-
-		// Omit the event argument in applying arguments to the hook callback.
-		// The remaining arguments are passed to the hook.
-		args = Array.prototype.slice.call( arguments, 1 );
-
-		wp.hooks.doAction.apply( null, [ actionName ].concat( args ) );
-	} );
-} )();
-JS;
-	wp_add_inline_script(
-		'heartbeat',
-		$heartbeat_hooks,
-		'after'
-	);
-
 	// Ignore Classic Editor's `rich_editing` user option, aka "Disable visual
 	// editor". Forcing this to be true guarantees that TinyMCE and its plugins
 	// are available in Gutenberg. Fixes
@@ -900,147 +636,9 @@ JS;
 	$user_can_richedit = user_can_richedit();
 	add_filter( 'user_can_richedit', '__return_true' );
 
-	wp_enqueue_script( 'wp-edit-post' );
-	wp_enqueue_script( 'wp-format-library' );
-	wp_enqueue_style( 'wp-format-library' );
-
-	global $post;
-
-	// Set initial title to empty string for auto draft for duration of edit.
-	// Otherwise, title defaults to and displays as "Auto Draft".
-	$is_new_post = 'auto-draft' === $post->post_status;
-
-	// Set the post type name.
-	$post_type        = get_post_type( $post );
-	$post_type_object = get_post_type_object( $post_type );
-	$rest_base        = ! empty( $post_type_object->rest_base ) ? $post_type_object->rest_base : $post_type_object->name;
-
-	$preload_paths = array(
-		'/',
-		'/wp/v2/types?context=edit',
-		'/wp/v2/taxonomies?per_page=-1&context=edit',
-		'/wp/v2/themes?status=active',
-		sprintf( '/wp/v2/%s/%s?context=edit', $rest_base, $post->ID ),
-		sprintf( '/wp/v2/types/%s?context=edit', $post_type ),
-		sprintf( '/wp/v2/users/me?post_type=%s&context=edit', $post_type ),
-		array( '/wp/v2/media', 'OPTIONS' ),
-		array( '/wp/v2/blocks', 'OPTIONS' ),
-	);
-
-	/**
-	 * Preload common data by specifying an array of REST API paths that will be preloaded.
-	 *
-	 * Filters the array of paths that will be preloaded.
-	 *
-	 * @param array $preload_paths Array of paths to preload
-	 * @param object $post         The post resource data.
-	 */
-	$preload_paths = apply_filters( 'block_editor_preload_paths', $preload_paths, $post );
-
-	// Ensure the global $post remains the same after
-	// API data is preloaded. Because API preloading
-	// can call the_content and other filters, callbacks
-	// can unexpectedly modify $post resulting in issues
-	// like https://github.com/WordPress/gutenberg/issues/7468.
-	$backup_global_post = $post;
-
-	$preload_data = array_reduce(
-		$preload_paths,
-		'rest_preload_api_request',
-		array()
-	);
-
-	// Restore the global $post as it was before API preloading.
-	$post = $backup_global_post;
-
-	wp_add_inline_script(
-		'wp-api-fetch',
-		sprintf( 'wp.apiFetch.use( wp.apiFetch.createPreloadingMiddleware( %s ) );', wp_json_encode( $preload_data ) ),
-		'after'
-	);
-
-	wp_add_inline_script(
-		'wp-blocks',
-		sprintf( 'wp.blocks.setCategories( %s );', wp_json_encode( get_block_categories( $post ) ) ),
-		'after'
-	);
-
-	// Assign initial edits, if applicable. These are not initially assigned
-	// to the persisted post, but should be included in its save payload.
-	if ( $is_new_post ) {
-		// Override "(Auto Draft)" new post default title with empty string,
-		// or filtered value.
-		$initial_edits = array(
-			'title'   => $post->post_title,
-			'content' => $post->post_content,
-			'excerpt' => $post->post_excerpt,
-		);
-	} else {
-		$initial_edits = null;
-	}
-
 	gutenberg_load_locale_data();
 
-	// Preload server-registered block schemas.
-	wp_add_inline_script(
-		'wp-blocks',
-		'wp.blocks.unstable__bootstrapServerSideBlockDefinitions(' . json_encode( get_block_editor_server_block_settings() ) . ');'
-	);
-
-	// Get admin url for handling meta boxes.
-	$meta_box_url = admin_url( 'post.php' );
-	$meta_box_url = add_query_arg(
-		array(
-			'post'            => $post->ID,
-			'action'          => 'edit',
-			'meta-box-loader' => true,
-			'_wpnonce'        => wp_create_nonce( 'meta-box-loader' ),
-		),
-		$meta_box_url
-	);
-	wp_localize_script( 'wp-editor', '_wpMetaBoxUrl', $meta_box_url );
-
-	// Initialize the editor.
-	$gutenberg_theme_support = get_theme_support( 'gutenberg' );
-	$align_wide              = get_theme_support( 'align-wide' );
-	$color_palette           = current( (array) get_theme_support( 'editor-color-palette' ) );
-	$font_sizes              = current( (array) get_theme_support( 'editor-font-sizes' ) );
-
-	if ( ! empty( $gutenberg_theme_support ) ) {
-		wp_enqueue_script( 'wp-deprecated' );
-		wp_add_inline_script( 'wp-deprecated', 'wp.deprecated( "`gutenberg` theme support", { plugin: "Gutenberg", version: "5.2", alternative: "`align-wide` theme support" } );' );
-	}
-
-	/**
-	 * Filters the allowed block types for the editor, defaulting to true (all
-	 * block types supported).
-	 *
-	 * @param bool|array $allowed_block_types Array of block type slugs, or
-	 *                                        boolean to enable/disable all.
-	 * @param object $post                    The post resource data.
-	 */
-	$allowed_block_types = apply_filters( 'allowed_block_types', true, $post );
-
-	// Get all available templates for the post/page attributes meta-box.
-	// The "Default template" array element should only be added if the array is
-	// not empty so we do not trigger the template select element without any options
-	// besides the default value.
-	$available_templates = wp_get_theme()->get_page_templates( get_post( $post->ID ) );
-	$available_templates = ! empty( $available_templates ) ? array_merge(
-		array(
-			'' => apply_filters( 'default_page_template_title', __( 'Default template', 'gutenberg' ), 'rest-api' ),
-		),
-		$available_templates
-	) : $available_templates;
-
-	// Media settings.
-	$max_upload_size = wp_max_upload_size();
-	if ( ! $max_upload_size ) {
-		$max_upload_size = 0;
-	}
-
 	// Editor Styles.
-	global $editor_styles;
 	$styles = array(
 		array(
 			'css' => file_get_contents(
@@ -1049,210 +647,10 @@ JS;
 		),
 	);
 
-	/* Translators: Use this to specify the CSS font family for the default font */
-	$locale_font_family = esc_html_x( 'Noto Serif', 'CSS Font Family for Editor Font', 'gutenberg' );
-	$styles[]           = array(
-		'css' => "body { font-family: '$locale_font_family' }",
-	);
-
-	if ( $editor_styles && current_theme_supports( 'editor-styles' ) ) {
-		foreach ( $editor_styles as $style ) {
-			if ( filter_var( $style, FILTER_VALIDATE_URL ) ) {
-				$styles[] = array(
-					'css' => file_get_contents( $style ),
-				);
-			} else {
-				$file = get_theme_file_path( $style );
-				if ( file_exists( $file ) ) {
-					$styles[] = array(
-						'css'     => file_get_contents( $file ),
-						'baseURL' => get_theme_file_uri( $style ),
-					);
-				}
-			}
-		}
-	}
-
-	// Lock settings.
-	$user_id = wp_check_post_lock( $post->ID );
-	if ( $user_id ) {
-		/**
-		 * Filters whether to show the post locked dialog.
-		 *
-		 * Returning a falsey value to the filter will short-circuit displaying the dialog.
-		 *
-		 * @since 3.6.0
-		 *
-		 * @param bool         $display Whether to display the dialog. Default true.
-		 * @param WP_Post      $post    Post object.
-		 * @param WP_User|bool $user    The user id currently editing the post.
-		 */
-		if ( apply_filters( 'show_post_locked_dialog', true, $post, $user_id ) ) {
-			$locked = true;
-		}
-
-		$user_details = null;
-		if ( $locked ) {
-			$user         = get_userdata( $user_id );
-			$user_details = array(
-				'name' => $user->display_name,
-			);
-			$avatar       = get_avatar( $user_id, 64 );
-			if ( $avatar ) {
-				if ( preg_match( "|src='([^']+)'|", $avatar, $matches ) ) {
-					$user_details['avatar'] = $matches[1];
-				}
-			}
-		}
-
-		$lock_details = array(
-			'isLocked' => $locked,
-			'user'     => $user_details,
-		);
-	} else {
-
-		// Lock the post.
-		$active_post_lock = wp_set_post_lock( $post->ID );
-		$lock_details     = array(
-			'isLocked'       => false,
-			'activePostLock' => esc_attr( implode( ':', $active_post_lock ) ),
-		);
-	}
-
 	$editor_settings = array(
-		'alignWide'              => $align_wide || ! empty( $gutenberg_theme_support[0]['wide-images'] ), // Backcompat. Use `align-wide` outside of `gutenberg` array.
-		'availableTemplates'     => $available_templates,
-		'allowedBlockTypes'      => $allowed_block_types,
-		'disableCustomColors'    => get_theme_support( 'disable-custom-colors' ),
-		'disableCustomFontSizes' => get_theme_support( 'disable-custom-font-sizes' ),
-		'disablePostFormats'     => ! current_theme_supports( 'post-formats' ),
-		'titlePlaceholder'       => apply_filters( 'enter_title_here', __( 'Add title', 'gutenberg' ), $post ),
-		'bodyPlaceholder'        => apply_filters( 'write_your_story', __( 'Start writing or type / to choose a block', 'gutenberg' ), $post ),
-		'isRTL'                  => is_rtl(),
-		'autosaveInterval'       => 10,
-		'maxUploadFileSize'      => $max_upload_size,
-		'allowedMimeTypes'       => get_allowed_mime_types(),
-		'styles'                 => $styles,
-		'imageSizes'             => gutenberg_get_available_image_sizes(),
-		'richEditingEnabled'     => $user_can_richedit,
-
-		// Ideally, we'd remove this and rely on a REST API endpoint.
-		'postLock'               => $lock_details,
-		'postLockUtils'          => array(
-			'nonce'       => wp_create_nonce( 'lock-post_' . $post->ID ),
-			'unlockNonce' => wp_create_nonce( 'update-post_' . $post->ID ),
-			'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
-		),
-
-		// Whether or not to load the 'postcustom' meta box is stored as a user meta
-		// field so that we're not always loading its assets.
-		'enableCustomFields'     => (bool) get_user_meta( get_current_user_id(), 'enable_custom_fields', true ),
+		'styles'             => $styles,
+		'richEditingEnabled' => $user_can_richedit,
 	);
-
-	$post_autosave = gutenberg_get_autosave_newer_than_post_save( $post );
-	if ( $post_autosave ) {
-		$editor_settings['autosave'] = array(
-			'editLink' => add_query_arg( 'gutenberg', true, get_edit_post_link( $post_autosave->ID ) ),
-		);
-	}
-
-	if ( false !== $color_palette ) {
-		$editor_settings['colors'] = $color_palette;
-	}
-
-	if ( ! empty( $font_sizes ) ) {
-		$editor_settings['fontSizes'] = $font_sizes;
-	}
-
-	if ( ! empty( $post_type_object->template ) ) {
-		$editor_settings['template']     = $post_type_object->template;
-		$editor_settings['templateLock'] = ! empty( $post_type_object->template_lock ) ? $post_type_object->template_lock : false;
-	}
-
-	$current_screen  = get_current_screen();
-	$core_meta_boxes = array();
-
-	// Make sure the current screen is set as well as the normal core metaboxes.
-	if ( isset( $current_screen->id ) && isset( $wp_meta_boxes[ $current_screen->id ]['normal']['core'] ) ) {
-		$core_meta_boxes = $wp_meta_boxes[ $current_screen->id ]['normal']['core'];
-	}
-
-	// Check if the Custom Fields meta box has been removed at some point.
-	if ( ! isset( $core_meta_boxes['postcustom'] ) || ! $core_meta_boxes['postcustom'] ) {
-		unset( $editor_settings['enableCustomFields'] );
-	}
-
-	/**
-	 * Filters the settings to pass to the block editor.
-	 *
-	 * @since 3.7.0
-	 *
-	 * @param array   $editor_settings Default editor settings.
-	 * @param WP_Post $post            Post being edited.
-	 */
-	$editor_settings = apply_filters( 'block_editor_settings', $editor_settings, $post );
-
-	$init_script = <<<JS
-	( function() {
-		window._wpLoadBlockEditor = new Promise( function( resolve ) {
-			wp.domReady( function() {
-				resolve( wp.editPost.initializeEditor( 'editor', "%s", %d, %s, %s ) );
-			} );
-		} );
-
-		Object.defineProperty( window, '_wpLoadGutenbergEditor', {
-			get: function() {
-				// TODO: Hello future maintainer. In removing this deprecation,
-				// ensure also to check whether `wp-editor`'s dependencies in
-				// `package-dependencies.php` still require `wp-deprecated`.
-				wp.deprecated( '`window._wpLoadGutenbergEditor`', {
-					plugin: 'Gutenberg',
-					version: '5.2',
-					alternative: '`window._wpLoadBlockEditor`',
-					hint: 'This is a private API, not intended for public use. It may be removed in the future.'
-				} );
-
-				return window._wpLoadBlockEditor;
-			}
-		} );
-} )();
-JS;
-
-	$script = sprintf(
-		$init_script,
-		$post->post_type,
-		$post->ID,
-		wp_json_encode( $editor_settings ),
-		wp_json_encode( $initial_edits )
-	);
-	wp_add_inline_script( 'wp-edit-post', $script );
-
-	/**
-	 * Scripts
-	 */
-	wp_enqueue_media(
-		array(
-			'post' => $post->ID,
-		)
-	);
-	wp_enqueue_editor();
-
-	/**
-	 * Styles
-	 */
-	wp_enqueue_style( 'wp-edit-post' );
-
-	/**
-	 * Fires after block assets have been enqueued for the editing interface.
-	 *
-	 * Call `add_action` on any hook before 'admin_enqueue_scripts'.
-	 *
-	 * In the function call you supply, simply use `wp_enqueue_script` and
-	 * `wp_enqueue_style` to add your functionality to the Gutenberg editor.
-	 *
-	 * @since 0.4.0
-	 */
-	do_action( 'enqueue_block_editor_assets' );
 }
 
 /**
